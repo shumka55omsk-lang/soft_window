@@ -1,131 +1,126 @@
-function escapeHtml(value = "") {
-  return String(value)
+function escapeHtml(value) {
+  return String(value || "")
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
 }
 
-async function parseBody(req) {
-  if (req.body && typeof req.body === "object") return req.body;
-  if (typeof req.body === "string") {
-    try {
-      return JSON.parse(req.body);
-    } catch (error) {
-      return {};
-    }
-  }
+export const config = {
+  runtime: "edge"
+};
 
-  let raw = "";
-  for await (const chunk of req) {
-    raw += chunk;
-  }
-
-  if (!raw) return {};
-
+export default async function handler(request) {
   try {
-    return JSON.parse(raw);
-  } catch (error) {
-    return {};
-  }
-}
+    const token = process.env.TELEGRAM_BOT_TOKEN;
+    const chatId = process.env.TELEGRAM_CHAT_ID;
 
-module.exports = async function handler(req, res) {
-  res.setHeader("Content-Type", "application/json; charset=utf-8");
-
-  if (req.method === "OPTIONS") {
-    res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
-    res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-    return res.status(204).end();
-  }
-
-  const token = (process.env.TELEGRAM_BOT_TOKEN || "").trim();
-  const chatId = (process.env.TELEGRAM_CHAT_ID || "").trim();
-
-  if (req.method === "GET") {
-    return res.status(200).json({
-      ok: true,
-      api: "send-telegram",
-      telegramBotTokenConfigured: Boolean(token),
-      telegramChatIdConfigured: Boolean(chatId)
-    });
-  }
-
-  if (req.method !== "POST") {
-    return res.status(405).json({ ok: false, error: "Method not allowed" });
-  }
-
-  if (!token || !chatId) {
-    return res.status(500).json({
-      ok: false,
-      error: "Telegram variables are not configured"
-    });
-  }
-
-  try {
-    const {
-      brand,
-      model,
-      year,
-      generation,
-      body,
-      matsType,
-      trunk,
-      heelPad,
-      name,
-      phone,
-      messenger,
-      comment
-    } = await parseBody(req);
-
-    const text = `
-<b>Новая заявка на EVA коврики</b>
-
-<b>Авто:</b> ${escapeHtml(brand)} ${escapeHtml(model)}
-<b>Год:</b> ${escapeHtml(year)}
-<b>Поколение:</b> ${escapeHtml(generation)}
-<b>Кузов:</b> ${escapeHtml(body || "Не указан")}
-
-<b>Коврики:</b> ${escapeHtml(matsType)}
-<b>Багажник:</b> ${escapeHtml(trunk)}
-<b>Подпятник:</b> ${escapeHtml(heelPad)}
-
-<b>Имя:</b> ${escapeHtml(name || "Не указано")}
-<b>Телефон:</b> ${escapeHtml(phone || "Не указан")}
-<b>Куда ответить:</b> ${escapeHtml(messenger || "Не указано")}
-
-<b>Комментарий:</b>
-${escapeHtml(comment || "Без комментария")}
-`.trim();
-
-    const telegramResponse = await fetch(
-      `https://api.telegram.org/bot${token}/sendMessage`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          chat_id: chatId,
-          text: text.slice(0, 4000),
-          parse_mode: "HTML"
-        })
-      }
-    );
-
-    const telegramData = await telegramResponse.json();
-
-    if (!telegramResponse.ok) {
-      return res.status(502).json({
-        ok: false,
-        error: telegramData.description || "Telegram error"
+    if (request.method === "GET") {
+      return Response.json({
+        ok: true,
+        api: "send-telegram",
+        telegramBotTokenConfigured: Boolean(token),
+        telegramChatIdConfigured: Boolean(chatId),
+        mode: "sendDocument",
+        version: "soft-windows-v3-formdata-edge"
       });
     }
 
-    return res.status(200).json({ ok: true });
-  } catch (error) {
-    return res.status(500).json({
-      ok: false,
-      error: error && error.message ? error.message : "Server error"
+    if (request.method !== "POST") {
+      return Response.json(
+        { ok: false, error: "Method not allowed" },
+        { status: 405 }
+      );
+    }
+
+    if (!token || !chatId) {
+      return Response.json(
+        {
+          ok: false,
+          error: "Не настроены TELEGRAM_BOT_TOKEN или TELEGRAM_CHAT_ID в Vercel"
+        },
+        { status: 500 }
+      );
+    }
+
+    const incomingForm = await request.formData();
+    const documentFile = incomingForm.get("document");
+    const filenameRaw = incomingForm.get("filename") || "soft_windows_order.pdf";
+    const captionRaw = incomingForm.get("caption") || "Расчёт мягких окон";
+
+    if (!documentFile) {
+      return Response.json(
+        { ok: false, error: "PDF-файл не передан в поле document" },
+        { status: 400 }
+      );
+    }
+
+    const size = documentFile.size || 0;
+
+    if (!size) {
+      return Response.json(
+        { ok: false, error: "PDF пустой или повреждён" },
+        { status: 400 }
+      );
+    }
+
+    if (size > 5 * 1024 * 1024) {
+      return Response.json(
+        {
+          ok: false,
+          error: "PDF слишком большой для отправки: " + Math.round(size / 1024 / 1024 * 100) / 100 + " МБ"
+        },
+        { status: 413 }
+      );
+    }
+
+    const filename = String(filenameRaw).replace(/[^\wа-яА-ЯёЁ.-]+/g, "_");
+    const caption = escapeHtml(String(captionRaw).slice(0, 1000));
+
+    const telegramForm = new FormData();
+    telegramForm.append("chat_id", chatId);
+    telegramForm.append("caption", caption);
+    telegramForm.append("parse_mode", "HTML");
+    telegramForm.append("document", documentFile, filename);
+
+    const telegramResponse = await fetch(
+      "https://api.telegram.org/bot" + token + "/sendDocument",
+      {
+        method: "POST",
+        body: telegramForm
+      }
+    );
+
+    const telegramText = await telegramResponse.text();
+    let telegramData = {};
+    try {
+      telegramData = JSON.parse(telegramText);
+    } catch (error) {
+      telegramData = { description: telegramText.slice(0, 300) };
+    }
+
+    if (!telegramResponse.ok) {
+      return Response.json(
+        {
+          ok: false,
+          error: telegramData.description || "Telegram error",
+          telegramStatus: telegramResponse.status
+        },
+        { status: 502 }
+      );
+    }
+
+    return Response.json({
+      ok: true,
+      message: "PDF отправлен в Telegram",
+      sizeBytes: size
     });
+  } catch (error) {
+    return Response.json(
+      {
+        ok: false,
+        error: error.message || "Server error"
+      },
+      { status: 500 }
+    );
   }
-};
+}

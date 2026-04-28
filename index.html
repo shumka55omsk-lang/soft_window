@@ -824,22 +824,21 @@ function addRow(width, height, qty, edging, straps, hasZipper, zipper, install, 
         });
       }, 50);
     });
-    /* ---------- Отправка PDF в Telegram через Vercel Serverless ---------- */
-    // ВАЖНО: токен бота и chat_id больше НЕ находятся в открытом HTML.
-    // Кнопка отправляет PDF на /api/send-telegram, а уже serverless-функция
-    // берёт TELEGRAM_BOT_TOKEN и TELEGRAM_CHAT_ID из переменных окружения Vercel.
+    /* ---------- Отправка PDF в Telegram через Vercel Serverless v3 ---------- */
+    // ВАЖНО: токен бота и chat_id НЕ находятся в HTML.
+    // PDF отправляется на /api/send-telegram как файл FormData, без base64.
+    // Это уменьшает размер запроса и убирает ошибку "Сервер вернул не JSON-ответ".
 
-    function blobToBase64(blob) {
-      return new Promise(function(resolve, reject) {
-        var reader = new FileReader();
-        reader.onload = function() {
-          var result = String(reader.result || '');
-          var base64 = result.indexOf(',') >= 0 ? result.split(',')[1] : result;
-          resolve(base64);
-        };
-        reader.onerror = reject;
-        reader.readAsDataURL(blob);
-      });
+    function formatBytes(bytes) {
+      if (!bytes) return '0 Б';
+      var units = ['Б', 'КБ', 'МБ'];
+      var value = bytes;
+      var unitIndex = 0;
+      while (value >= 1024 && unitIndex < units.length - 1) {
+        value = value / 1024;
+        unitIndex++;
+      }
+      return value.toFixed(unitIndex === 0 ? 0 : 2) + ' ' + units[unitIndex];
     }
 
     function buildTelegramCaption(orderNumber) {
@@ -862,56 +861,86 @@ function addRow(width, height, qty, edging, straps, hasZipper, zipper, install, 
       ].join('\\n');
     }
 
-    document.getElementById('sendTelegramBtn').addEventListener('click', function() {
+    function setPdfStatus(text, visible) {
       var statusEl = document.getElementById('pdfStatus');
-      statusEl.style.display = 'inline';
-      statusEl.textContent = 'Создание и отправка PDF…';
+      if (!statusEl) return;
+      statusEl.textContent = text || 'Создание PDF…';
+      statusEl.style.display = visible ? 'inline' : 'none';
+    }
 
-      // На мобильных экранах снижаем масштаб, чтобы ускорить рендеринг
-      var scaleFactor = (window.innerWidth || document.documentElement.clientWidth) < 768 ? 1 : 2;
+    document.getElementById('sendTelegramBtn').addEventListener('click', function() {
+      setPdfStatus('Создание PDF для Telegram…', true);
+
+      // Для Telegram используем лёгкий режим: scale=1 и JPEG.
+      // Кнопка "Скачать PDF" остаётся в прежнем качестве.
+      var scaleFactor = 1;
 
       setTimeout(function() {
         var pdfContainer = document.getElementById('pdfLayout');
 
-        html2canvas(pdfContainer, { scale: scaleFactor }).then(function(canvas) {
-          var imgData = canvas.toDataURL('image/png');
+        html2canvas(pdfContainer, {
+          scale: scaleFactor,
+          backgroundColor: '#ffffff',
+          useCORS: true
+        }).then(function(canvas) {
+          setPdfStatus('Сборка PDF…', true);
+
+          var imgData = canvas.toDataURL('image/jpeg', 0.72);
           var pdf = new jspdf.jsPDF('p', 'mm', 'a4');
           var imgProps = pdf.getImageProperties(imgData);
 
-          // Добавляем левый отступ для комфортной печати.
           var pageWidth = pdf.internal.pageSize.getWidth();
-          var marginLeft = 15; // мм — левый отступ
-          var scaledWidth = pageWidth - marginLeft;
+          var pageHeight = pdf.internal.pageSize.getHeight();
+          var marginLeft = 15;
+          var marginTop = 8;
+          var scaledWidth = pageWidth - marginLeft - 5;
           var scaledHeight = (imgProps.height * scaledWidth) / imgProps.width;
 
-          pdf.addImage(imgData, 'PNG', marginLeft, 0, scaledWidth, scaledHeight);
+          // Для отправки в Telegram делаем один компактный лист.
+          // Для печати используйте отдельную кнопку "Скачать PDF".
+          if (scaledHeight > pageHeight - marginTop - 8) {
+            scaledHeight = pageHeight - marginTop - 8;
+            scaledWidth = (imgProps.width * scaledHeight) / imgProps.height;
+          }
+
+          pdf.addImage(imgData, 'JPEG', marginLeft, marginTop, scaledWidth, scaledHeight);
 
           var orderNumber = document.getElementById('orderNumber').value || 'order';
           var filename = 'soft_windows_' + orderNumber + '.pdf';
           var blob = pdf.output('blob');
 
-          return blobToBase64(blob).then(function(pdfBase64) {
-            return fetch('/api/send-telegram', {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json'
-              },
-              body: JSON.stringify({
-                filename: filename,
-                pdfBase64: pdfBase64,
-                caption: buildTelegramCaption(orderNumber)
-              })
-            });
+          if (blob.size > 4.5 * 1024 * 1024) {
+            setPdfStatus('Создание PDF…', false);
+            alert('PDF слишком большой для отправки через сайт: ' + formatBytes(blob.size) + '. Уменьшите количество окон или используйте кнопку "Скачать PDF".');
+            throw new Error('PDF слишком большой: ' + formatBytes(blob.size));
+          }
+
+          setPdfStatus('Отправка PDF ' + formatBytes(blob.size) + '…', true);
+
+          var formData = new FormData();
+          formData.append('document', blob, filename);
+          formData.append('filename', filename);
+          formData.append('caption', buildTelegramCaption(orderNumber));
+
+          return fetch('/api/send-telegram', {
+            method: 'POST',
+            body: formData
           });
         }).then(function(response) {
-          return response.json().catch(function() {
-            return { ok: false, error: 'Сервер вернул не JSON-ответ' };
-          }).then(function(data) {
+          return response.text().then(function(text) {
+            var data;
+            try {
+              data = JSON.parse(text);
+            } catch (e) {
+              data = {
+                ok: false,
+                error: 'Сервер вернул не JSON-ответ. HTTP ' + response.status + '. Ответ: ' + text.slice(0, 200)
+              };
+            }
             return { response: response, data: data };
           });
         }).then(function(result) {
-          statusEl.style.display = 'none';
-          statusEl.textContent = 'Создание PDF…';
+          setPdfStatus('Создание PDF…', false);
 
           if (!result.response.ok || !result.data.ok) {
             alert('Ошибка отправки: ' + (result.data.error || ('HTTP ' + result.response.status)));
@@ -920,8 +949,8 @@ function addRow(width, height, qty, edging, straps, hasZipper, zipper, install, 
 
           alert('PDF успешно отправлен в Telegram.');
         }).catch(function(err) {
-          statusEl.style.display = 'none';
-          statusEl.textContent = 'Создание PDF…';
+          setPdfStatus('Создание PDF…', false);
+          if (String(err.message || err).indexOf('PDF слишком большой') >= 0) return;
           alert('Ошибка при отправке PDF в Telegram: ' + (err.message || err));
         });
       }, 50);
