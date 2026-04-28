@@ -1,0 +1,963 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Профессиональный калькулятор мягких окон</title>
+  <!--
+    Этот файл представляет собой профессиональную версию калькулятора для
+    расчёта мягких окон. Здесь учтены пожелания:
+    – улучшенный, современный дизайн;
+    – возможность указать минимальную стоимость заказа;
+    – ввод данных клиента (номер заказа, имя и адрес);
+    – формирование единого чертежа с размерами, ремнями и молниями;
+    – экспорт заказа и чертежа в PDF для отправки клиенту.
+
+    Для генерации PDF используется связка html2canvas и jsPDF. При необходимости
+    эти библиотеки подтягиваются с CDN.
+  -->
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      padding: 20px;
+      font-family: "Segoe UI", Tahoma, sans-serif;
+      background-color: #f0f4f8;
+      color: #222;
+    }
+
+    h1, h2 {
+      margin-top: 0;
+      margin-bottom: 16px;
+      font-weight: 700;
+    }
+
+    h1 {
+      font-size: 32px;
+      text-align: center;
+    }
+
+    h2 {
+      font-size: 24px;
+    }
+
+    .container {
+      max-width: 1320px;
+      margin: 0 auto;
+      background: #fff;
+      border-radius: 18px;
+      box-shadow: 0 12px 35px rgba(0,0,0,0.08);
+      padding: 24px 28px;
+    }
+
+    .grid {
+      display: grid;
+      gap: 16px;
+    }
+
+    .grid-2 {
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    }
+
+    .field {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .field label {
+      font-weight: 600;
+      margin-bottom: 6px;
+      font-size: 14px;
+    }
+
+    .field input, .field select {
+      padding: 10px 12px;
+      border: 1px solid #d2d8e0;
+      border-radius: 10px;
+      font-size: 15px;
+      background: #fff;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 12px;
+      /* минимальная ширина, чтобы таблица не сжималась на мобильных экранах */
+      min-width: 1100px;
+    }
+
+    /* Обёртка таблицы: на мобильных экранах позволяет прокручивать таблицу по горизонтали */
+    .table-responsive {
+      overflow-x: auto;
+      width: 100%;
+    }
+
+    th, td {
+      padding: 10px 8px;
+      border-bottom: 1px solid #e6ecf2;
+      text-align: center;
+      font-size: 14px;
+    }
+
+    th {
+      background: #f4f8fc;
+      font-weight: 700;
+    }
+
+    td input[type="number"] {
+      width: 100%;
+      min-width: 60px;
+      padding: 6px;
+      border: 1px solid #d2d8e0;
+      border-radius: 8px;
+      font-size: 14px;
+    }
+
+    td input[type="checkbox"] {
+      transform: scale(1.2);
+      cursor: pointer;
+    }
+
+    .buttons {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-top: 14px;
+    }
+
+    .btn {
+      border: none;
+      border-radius: 8px;
+      padding: 10px 16px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: 0.2s ease;
+    }
+
+    .btn-primary {
+      background: #1f6feb;
+      color: #fff;
+    }
+
+    .btn-danger {
+      background: #e74c3c;
+      color: #fff;
+    }
+
+    .btn-secondary {
+      background: #f1f3f5;
+      color: #333;
+    }
+
+    .btn-primary:hover, .btn-danger:hover {
+      opacity: 0.9;
+    }
+
+    .summary-grid {
+      display: grid;
+      gap: 12px;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      margin-top: 20px;
+    }
+
+    .summary-card {
+      background: #fafcff;
+      border: 1px solid #e5ebf2;
+      border-radius: 14px;
+      padding: 16px;
+    }
+
+    .summary-card .title {
+      font-size: 14px;
+      color: #666;
+      margin-bottom: 4px;
+    }
+
+    .summary-card .value {
+      font-size: 26px;
+      font-weight: 700;
+      color: #111;
+    }
+
+    /* PDF preview container */
+    .pdf-preview-wrapper {
+      margin-top: 28px;
+      border: 1px solid #e3e9f0;
+      border-radius: 12px;
+      padding: 20px;
+      background: #fbfdff;
+    }
+
+    .pdf-header {
+      margin-bottom: 10px;
+      text-align: center;
+    }
+
+    .pdf-header h3 {
+      margin: 0;
+      font-size: 22px;
+    }
+
+    .pdf-info {
+      margin-bottom: 16px;
+      font-size: 14px;
+      line-height: 1.4;
+    }
+
+    .pdf-drawings-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 14px;
+    }
+
+    .pdf-drawing-item {
+      border: 1px solid #e5ebf2;
+      border-radius: 12px;
+      padding: 10px;
+      background: #fff;
+    }
+
+    .pdf-drawing-item h4 {
+      margin: 0 0 8px;
+      font-size: 16px;
+      font-weight: 600;
+    }
+
+    .pdf-drawing-item .meta {
+      font-size: 13px;
+      color: #555;
+      margin-bottom: 8px;
+    }
+
+    .pdf-summary {
+      margin-top: 16px;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    .pdf-summary b {
+      font-weight: 700;
+    }
+
+    /* Responsive adjustments */
+    @media (max-width: 760px) {
+      .container {
+        padding: 16px;
+      }
+      h1 {
+        font-size: 26px;
+      }
+      h2 {
+        font-size: 20px;
+      }
+      .summary-card .value {
+        font-size: 22px;
+      }
+      .pdf-preview-wrapper {
+        padding: 14px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Профессиональный калькулятор мягких окон</h1>
+
+    <!-- Данные заказа -->
+    <h2>Данные заказа</h2>
+    <div class="grid grid-2">
+      <div class="field">
+        <label for="orderNumber">Номер заказа</label>
+        <input type="text" id="orderNumber" placeholder="Напр. 00123">
+      </div>
+      <div class="field">
+        <label for="clientName">Имя клиента</label>
+        <input type="text" id="clientName" placeholder="ФИО">
+      </div>
+      <div class="field">
+        <label for="clientAddress">Адрес клиента</label>
+        <input type="text" id="clientAddress" placeholder="Город, улица, дом">
+      </div>
+      <div class="field">
+        <label for="orderDate">Дата</label>
+        <input type="date" id="orderDate">
+      </div>
+      <!-- Поле минимальной стоимости заказа удалено по просьбе пользователя -->
+    </div>
+
+    <!-- Настройки цены -->
+    <h2>Настройки цен</h2>
+    <div class="grid grid-2">
+      <div class="field">
+        <label for="pricePerM2">Цена за 1 м², ₽</label>
+        <input type="number" id="pricePerM2" value="1500" min="0" step="1">
+      </div>
+      <div class="field">
+        <label for="edgingPrice">Окантовка, ₽ / пог. м</label>
+        <input type="number" id="edgingPrice" value="120" min="0" step="1">
+      </div>
+      <div class="field">
+        <label for="strapPrice">Ремень, ₽ / шт</label>
+        <input type="number" id="strapPrice" value="80" min="0" step="1">
+      </div>
+      <div class="field">
+        <label for="zipperPrice">Молния, ₽ / пог. м</label>
+        <input type="number" id="zipperPrice" value="250" min="0" step="1">
+      </div>
+      <div class="field">
+        <label for="installPrice">Монтаж, ₽ / окно</label>
+        <input type="number" id="installPrice" value="500" min="0" step="1">
+      </div>
+
+      <!-- Ширина окантовки (см) -->
+      <div class="field">
+        <label for="edgingWidth">Ширина окантовки, см</label>
+        <!-- Толщина края/канта, которая будет показана на чертеже и учитываться в метаданных -->
+        <input type="number" id="edgingWidth" value="5" min="0" step="0.1">
+      </div>
+    </div>
+
+    <!-- Таблица окон -->
+    <h2>Параметры окон</h2>
+    <div class="table-responsive">
+      <table id="windowsTable">
+        <thead>
+          <tr>
+            <th>Ширина, см</th>
+            <th>Высота, см</th>
+            <th>Кол-во</th>
+            <th>Окантовка</th>
+            <th>Ремней на окно</th>
+            <th>Молния</th>
+            <th>Молния, см на окно</th>
+            <th>Отступ молнии, см</th>
+            <th>Монтаж</th>
+            <th>Площадь, м²</th>
+            <th>Основа, ₽</th>
+            <th>Допы, ₽</th>
+            <th>Итого, ₽</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="tableBody"></tbody>
+      </table>
+      <div class="buttons">
+        <button class="btn btn-primary" onclick="addRow()">+ Добавить окно</button>
+        <button class="btn btn-secondary" onclick="resetRows()">Очистить окна</button>
+      </div>
+    </div>
+
+    <!-- Итоги -->
+    <h2>Итоги</h2>
+    <div class="summary-grid">
+      <div class="summary-card">
+        <div class="title">Всего окон</div>
+        <div class="value" id="totalQty">0</div>
+      </div>
+      <div class="summary-card">
+        <div class="title">Общая площадь</div>
+        <div class="value" id="totalArea">0.00 м²</div>
+      </div>
+      <div class="summary-card">
+        <div class="title">Сумма по полотну</div>
+        <div class="value" id="baseTotal">0 ₽</div>
+      </div>
+      <div class="summary-card">
+        <div class="title">Сумма допов</div>
+        <div class="value" id="extraTotal">0 ₽</div>
+      </div>
+      <div class="summary-card">
+        <div class="title">Итого</div>
+        <div class="value" id="grandTotal">0 ₽</div>
+      </div>
+    </div>
+
+    <!-- PDF layout preview -->
+    <h2>Превью PDF</h2>
+    <div class="pdf-preview-wrapper">
+      <div id="pdfLayout">
+        <!-- Содержимое PDF будет генерироваться динамически -->
+      </div>
+    </div>
+    <div class="buttons" style="margin-top: 12px;">
+      <button class="btn btn-primary" id="downloadPdfBtn">Скачать PDF</button>
+      <button class="btn btn-primary" id="sendTelegramBtn">Отправить PDF в Telegram</button>
+      <!-- Индикатор процесса для создания PDF -->
+      <span id="pdfStatus" style="display:none; margin-left:12px; font-size:14px; color:#555;">Создание PDF…</span>
+    </div>
+
+    <div style="margin-top: 24px; font-size: 13px; color: #555;">
+      При формировании PDF заказ, параметры окон и чертежи собираются на одной странице. 
+      Вы можете распечатать PDF или отправить его клиенту.
+    </div>
+  </div>
+
+  <!-- Подключение необходимых библиотек для pdf -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+  <script>
+    /* ------------- Вспомогательные функции ------------- */
+    function money(value) {
+      return new Intl.NumberFormat('ru-RU').format(Math.round(value)) + ' ₽';
+    }
+
+    function num(value) {
+      return parseFloat(value) || 0;
+    }
+
+    function intNum(value) {
+      return parseInt(value) || 0;
+    }
+
+    // Создание SVG с размерами, ремнями, молнией, толщиной окантовки и смещением молнии
+function makeDrawingSVG(widthCm, heightCm, index, straps, zipperMeters, edgingWidthCm, zipperOffsetCm, hasZipper) {
+      const svgWidth = 320;
+      const svgHeight = 220;
+      const maxRectWidth = 200;
+      const maxRectHeight = 130;
+
+      // Общие размеры: внутренняя часть окна + окантовка по ширине
+      const outerWidthCm = widthCm + 2 * edgingWidthCm;
+      const outerHeightCm = heightCm + 2 * edgingWidthCm;
+
+      /*
+       * Вычисляем масштабирование с учётом максимальных размеров. Затем при необходимости
+       * корректируем масштаб, чтобы гарантировать минимальные размеры внешнего прямоугольника.
+       * Это позволяет сохранить одинаковую толщину окантовки даже для высоких/узких окон.
+       */
+      let scaleCandidate = Math.min(
+        maxRectWidth / Math.max(outerWidthCm, 1),
+        maxRectHeight / Math.max(outerHeightCm, 1)
+      );
+      // Начальные размеры внешнего прямоугольника
+      let outerRectWidthCalc = outerWidthCm * scaleCandidate;
+      let outerRectHeightCalc = outerHeightCm * scaleCandidate;
+      let finalScale = scaleCandidate;
+      // Минимальные размеры для отображения (ширина = 60px, высота = 45px)
+      const minOuterWidthPx = 60;
+      const minOuterHeightPx = 45;
+      // Если ширина меньше минимальной, увеличиваем масштаб
+      if (outerRectWidthCalc < minOuterWidthPx) {
+        finalScale = minOuterWidthPx / outerWidthCm;
+        outerRectWidthCalc = minOuterWidthPx;
+        outerRectHeightCalc = outerHeightCm * finalScale;
+      }
+      // Если высота меньше минимальной, увеличиваем масштаб
+      if (outerRectHeightCalc < minOuterHeightPx) {
+        finalScale = minOuterHeightPx / outerHeightCm;
+        outerRectHeightCalc = minOuterHeightPx;
+        outerRectWidthCalc = outerWidthCm * finalScale;
+      }
+      // Окончательные размеры внешнего прямоугольника
+      const outerRectWidth = outerRectWidthCalc;
+      const outerRectHeight = outerRectHeightCalc;
+      const outerRectX = (svgWidth - outerRectWidth) / 2;
+      const outerRectY = 60;
+      // Размеры внутренней части окна рассчитываются на основе итогового масштаба
+      const innerRectWidth = widthCm * finalScale;
+      const innerRectHeight = heightCm * finalScale;
+      // Координаты внутреннего прямоугольника: окантовка имеет постоянную толщину finalScale * edgingWidthCm
+      const innerRectX = outerRectX + edgingWidthCm * finalScale;
+      const innerRectY = outerRectY + edgingWidthCm * finalScale;
+
+      // Определяем толщину линий размеров: если есть молния, делаем линии тоньше
+      var dimStroke = hasZipper ? 1.0 : 1.4;
+
+      // Страп‑маркеры (размещаются по верхнему краю внутреннего окна)
+      let strapElements = '';
+      if (straps > 0) {
+        const spacing = innerRectWidth / (straps + 1);
+        for (var i = 1; i <= straps; i++) {
+          const cx = innerRectX + spacing * i;
+          const cy = innerRectY;
+          strapElements += `\n            <circle cx="${cx}" cy="${cy}" r="4" fill="#e74c3c" stroke="#b03a2e" stroke-width="1"/>`;
+        }
+      }
+
+      // Молния: две вертикальные линии по обеим сторонам от окна с учётом смещения
+      var zipperElement = '';
+      // Элементы для отображения расстояния от края до молнии (показываются только при наличии смещения)
+      if (hasZipper && zipperMeters > 0) {
+        var zipperCm = zipperMeters * 100;
+        var zipperLengthCm = Math.min(zipperCm, heightCm);
+        var zipperLengthPx = zipperLengthCm * finalScale;
+        var zipperStartY = innerRectY + (innerRectHeight - zipperLengthPx) / 2;
+        var zipperEndY = zipperStartY + zipperLengthPx;
+        var offsetPx = zipperOffsetCm * finalScale;
+        // Позиции молний слева и справа (от края окантовки)
+        var zipperLeftX = outerRectX + offsetPx;
+        var zipperRightX = outerRectX + outerRectWidth - offsetPx;
+        // Рисуем молнии с обеих сторон
+        zipperElement = `\n          <line x1="${zipperLeftX}" y1="${zipperStartY}" x2="${zipperLeftX}" y2="${zipperEndY}" stroke="#8e44ad" stroke-width="2" stroke-dasharray="5 4"/>`;
+        zipperElement += `\n          <line x1="${zipperRightX}" y1="${zipperStartY}" x2="${zipperRightX}" y2="${zipperEndY}" stroke="#8e44ad" stroke-width="2" stroke-dasharray="5 4"/>`;
+        // Добавляем размерные линии для отступов слева и справа, только если offset > 0
+        if (zipperOffsetCm > 0) {
+          var offsetLineY = outerRectY - 30;
+          // Левая сторона
+          var startX1 = outerRectX;
+          var endX1 = zipperLeftX;
+          var midX1 = (startX1 + endX1) / 2;
+          zipperElement += `\n          <line x1="${startX1}" y1="${offsetLineY}" x2="${endX1}" y2="${offsetLineY}" stroke="#34495e" stroke-width="${dimStroke}" marker-start="url(#arrow-start-${index})" marker-end="url(#arrow-end-${index})"/>`;
+          zipperElement += `\n          <text x="${midX1}" y="${offsetLineY - 6}" text-anchor="middle" font-size="12" font-weight="700" fill="#34495e">${zipperOffsetCm} см</text>`;
+          // Правая сторона
+          var startX2 = zipperRightX;
+          var endX2 = outerRectX + outerRectWidth;
+          var midX2 = (startX2 + endX2) / 2;
+          zipperElement += `\n          <line x1="${startX2}" y1="${offsetLineY}" x2="${endX2}" y2="${offsetLineY}" stroke="#34495e" stroke-width="${dimStroke}" marker-start="url(#arrow-start-${index})" marker-end="url(#arrow-end-${index})"/>`;
+          zipperElement += `\n          <text x="${midX2}" y="${offsetLineY - 6}" text-anchor="middle" font-size="12" font-weight="700" fill="#34495e">${zipperOffsetCm} см</text>`;
+        }
+      }
+
+      // Элементы SVG: внешняя рамка (окантовка) выделяется коричневым цветом
+      return `\n        <svg width="100%" viewBox="0 0 ${svgWidth} ${svgHeight}" xmlns="http://www.w3.org/2000/svg">\n          <!-- Окантовка (внешний прямоугольник) -->\n          <rect x="${outerRectX}" y="${outerRectY}" width="${outerRectWidth}" height="${outerRectHeight}" rx="2" ry="2"\n                fill="#f7d9c4" stroke="#8b5a2b" stroke-width="2"/>\n\n          <!-- Внутренняя часть окна -->\n          <rect x="${innerRectX}" y="${innerRectY}" width="${innerRectWidth}" height="${innerRectHeight}" rx="2" ry="2"\n                fill="#dfeeff" stroke="#1f6feb" stroke-width="2"/>\n\n          <!-- Номер окна -->\n          <text x="${innerRectX + innerRectWidth / 2}" y="${innerRectY + innerRectHeight / 2}"\n                text-anchor="middle" font-size="16" font-weight="700" fill="#1f2d3d">\n            ${index}\n          </text>\n\n          <!-- Размеры: ширина внутреннего окна -->\n          <line x1="${innerRectX}" y1="${outerRectY - 14}" x2="${innerRectX + innerRectWidth}" y2="${outerRectY - 14}"\n                stroke="#34495e" stroke-width="1.4" marker-start="url(#arrow-start-${index})" marker-end="url(#arrow-end-${index})"/>\n          <text x="${innerRectX + innerRectWidth / 2}" y="${outerRectY - 20}"\n                text-anchor="middle" font-size="13" font-weight="700" fill="#34495e">\n            ${widthCm} см\n          </text>\n\n          <!-- Размеры: высота внутреннего окна -->\n          <line x1="${innerRectX - 14}" y1="${innerRectY}" x2="${innerRectX - 14}" y2="${innerRectY + innerRectHeight}"\n                stroke="#34495e" stroke-width="1.4" marker-start="url(#arrow-start-${index})" marker-end="url(#arrow-end-${index})"/>\n          <text x="${innerRectX - 20}" y="${innerRectY + innerRectHeight / 2}"\n                text-anchor="middle" font-size="13" font-weight="700" fill="#34495e"\n                transform="rotate(-90, ${innerRectX - 20}, ${innerRectY + innerRectHeight / 2})">\n            ${heightCm} см\n          </text>\n\n          ${strapElements}\n          ${zipperElement}\n\n          <defs>\n            <marker id="arrow-start-${index}" markerWidth="7" markerHeight="7" refX="0" refY="3.5" orient="auto">\n              <path d="M7,0 L0,3.5 L7,7" fill="#34495e"/>\n            </marker>\n            <marker id="arrow-end-${index}" markerWidth="7" markerHeight="7" refX="7" refY="3.5" orient="auto">\n              <path d="M0,0 L7,3.5 L0,7" fill="#34495e"/>\n            </marker>\n          </defs>\n        </svg>\n      `;
+    }
+
+    /* ------------ Управление строками таблицы ------------ */
+    const tableBody = document.getElementById('tableBody');
+
+function addRow(width, height, qty, edging, straps, hasZipper, zipper, install, zipperOffset) {
+      // Поддержка старых браузеров: задаём значения по умолчанию, если параметры отсутствуют
+      if (typeof width === 'undefined') width = '';
+      if (typeof height === 'undefined') height = '';
+      if (typeof qty === 'undefined') qty = 1;
+      if (typeof edging === 'undefined') edging = true;
+      if (typeof straps === 'undefined') straps = 4;
+      if (typeof hasZipper === 'undefined') hasZipper = true;
+      if (typeof zipper === 'undefined') zipper = 0;
+      if (typeof install === 'undefined') install = true;
+      if (typeof zipperOffset === 'undefined') zipperOffset = 0;
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td><input type="number" class="width" min="0" step="1" value="${width}" placeholder="200"></td>
+        <td><input type="number" class="height" min="0" step="1" value="${height}" placeholder="150"></td>
+        <td><input type="number" class="qty" min="1" step="1" value="${qty}"></td>
+        <td><input type="checkbox" class="edging" ${edging ? 'checked' : ''}></td>
+        <td><input type="number" class="straps" min="0" step="1" value="${straps}"></td>
+        <!-- Флаг наличия молнии -->
+        <td><input type="checkbox" class="hasZipper" ${hasZipper ? 'checked' : ''}></td>
+        <td><input type="number" class="zipper" min="0" step="1" value="${zipper}" ${hasZipper ? '' : 'disabled'}></td>
+        <td><input type="number" class="zipperOffset" min="0" step="0.1" value="${zipperOffset}" ${hasZipper ? '' : 'disabled'}></td>
+        <td><input type="checkbox" class="install" ${install ? 'checked' : ''}></td>
+        <td class="area">0.00</td>
+        <td class="base">0 ₽</td>
+        <td class="extras">0 ₽</td>
+        <td class="rowTotal">0 ₽</td>
+        <td><button class="btn btn-danger" onclick="removeRow(this)">×</button></td>
+      `;
+      // Добавить строку в таблицу
+      tableBody.appendChild(tr);
+      // Добавить обработчики событий: для всех инпутов и селектов
+      tr.querySelectorAll('input, select').forEach(function(el) {
+        el.addEventListener('input', calculate);
+        el.addEventListener('change', calculate);
+      });
+
+      // Управление полями молнии: при снятии флага отключаем ввод длины, смещения и стороны
+      var hasZipperInput = tr.querySelector('.hasZipper');
+      var zipperInput = tr.querySelector('.zipper');
+      var zipperOffsetInput = tr.querySelector('.zipperOffset');
+      function toggleZipperFields() {
+        var checked = hasZipperInput && hasZipperInput.checked;
+        if (zipperInput) zipperInput.disabled = !checked;
+        if (zipperOffsetInput) zipperOffsetInput.disabled = !checked;
+      }
+      // Установка начального состояния полей
+      toggleZipperFields();
+      if (hasZipperInput) {
+        hasZipperInput.addEventListener('change', function() {
+          toggleZipperFields();
+          calculate();
+        });
+      }
+      calculate();
+    }
+
+    function removeRow(btn) {
+      btn.closest('tr').remove();
+      calculate();
+    }
+
+    function resetRows() {
+      tableBody.innerHTML = '';
+      calculate();
+    }
+
+    /* ------------ Расчёт и обновление отображения ------------ */
+    function calculate() {
+      const pricePerM2 = num(document.getElementById('pricePerM2').value);
+      const edgingPrice  = num(document.getElementById('edgingPrice').value);
+      const edgingWidth  = num(document.getElementById('edgingWidth').value);
+      const strapPrice   = num(document.getElementById('strapPrice').value);
+      const zipperPrice  = num(document.getElementById('zipperPrice').value);
+      const installPrice = num(document.getElementById('installPrice').value);
+      // Минимальная стоимость заказа исключена
+
+      let totalQty = 0;
+      let totalArea = 0;
+      let baseTotal = 0;
+      let extraTotal = 0;
+      let grandTotal = 0;
+
+      const rows = tableBody.querySelectorAll('tr');
+      const drawingsData = [];
+      rows.forEach((row, index) => {
+        const widthCm = num(row.querySelector('.width').value);
+        const heightCm = num(row.querySelector('.height').value);
+        const qty = intNum(row.querySelector('.qty').value);
+        const edgingChecked = row.querySelector('.edging').checked;
+        const strapsPerWindow = intNum(row.querySelector('.straps').value);
+        // Определяем наличие молнии
+        const hasZipperEl = row.querySelector('.hasZipper');
+        const hasZipper = hasZipperEl ? hasZipperEl.checked : true;
+        // Длина молнии в сантиметрах, указана пользователем (если молнии нет — 0)
+        const zipperCmPerWindow = hasZipper ? num(row.querySelector('.zipper').value) : 0;
+        // Переводим в метры для расчёта стоимости
+        const zipperMetersPerWindow = zipperCmPerWindow / 100;
+        // Смещение молнии от края (если молнии нет — 0)
+        const zipperOffsetCm = hasZipper ? num(row.querySelector('.zipperOffset') ? row.querySelector('.zipperOffset').value : 0) : 0;
+        const installChecked = row.querySelector('.install').checked;
+
+        const widthM = widthCm / 100;
+        const heightM = heightCm / 100;
+        const areaOne = widthM * heightM;
+        const areaTotal = areaOne * qty;
+        const baseSum = areaTotal * pricePerM2;
+        const perimeterOne = 2 * (widthM + heightM);
+        const edgingSum = edgingChecked ? perimeterOne * qty * edgingPrice : 0;
+        const strapsSum = strapsPerWindow * qty * strapPrice;
+        const zipperSum = hasZipper ? zipperMetersPerWindow * qty * zipperPrice : 0;
+        const installSum = installChecked ? qty * installPrice : 0;
+        const extrasSum = edgingSum + strapsSum + zipperSum + installSum;
+        const rowTotal = baseSum + extrasSum;
+
+        row.querySelector('.area').textContent = areaTotal.toFixed(2);
+        row.querySelector('.base').textContent = money(baseSum);
+        row.querySelector('.extras').textContent = money(extrasSum);
+        row.querySelector('.rowTotal').textContent = money(rowTotal);
+
+        totalQty += qty;
+        totalArea += areaTotal;
+        baseTotal += baseSum;
+        extraTotal += extrasSum;
+        grandTotal += rowTotal;
+
+        // Данные для чертежа
+        if (widthCm > 0 && heightCm > 0) {
+          drawingsData.push({
+            index: index + 1,
+            widthCm: widthCm,
+            heightCm: heightCm,
+            qty: qty,
+            straps: strapsPerWindow,
+            // Сохраняем длину молнии в метрах для рисования
+            zipperMeters: zipperMetersPerWindow,
+            // И в сантиметрах для отображения в подписи
+            zipperCm: zipperCmPerWindow,
+            edgingWidth: edgingWidth,
+            zipperOffset: zipperOffsetCm,
+            edgingChecked: edgingChecked,
+            installChecked: installChecked,
+            hasZipper: hasZipper
+          });
+        }
+      });
+
+      // Итоговая сумма без применения минимального порога
+      const grandTotalMin = grandTotal;
+
+      document.getElementById('totalQty').textContent = totalQty;
+      document.getElementById('totalArea').textContent = totalArea.toFixed(2) + ' м²';
+      document.getElementById('baseTotal').textContent = money(baseTotal);
+      document.getElementById('extraTotal').textContent = money(extraTotal);
+      document.getElementById('grandTotal').textContent = money(grandTotal);
+      // Элемент grandTotalMin был удалён, обновление не требуется
+
+      // Обновление PDF-превью
+      updatePdfLayout(drawingsData, {
+        orderNumber: document.getElementById('orderNumber').value,
+        clientName: document.getElementById('clientName').value,
+        clientAddress: document.getElementById('clientAddress').value,
+        orderDate: document.getElementById('orderDate').value,
+        totalQty: totalQty,
+        totalArea: totalArea,
+        baseTotal: baseTotal,
+        extraTotal: extraTotal,
+        grandTotal: grandTotal,
+        pricePerM2: pricePerM2,
+        edgingPrice: edgingPrice,
+        strapPrice: strapPrice,
+        zipperPrice: zipperPrice,
+        installPrice: installPrice,
+        edgingWidth: edgingWidth
+      });
+    }
+
+    /* ---------- Формирование содержимого PDF ---------- */
+    function updatePdfLayout(drawingsData, summary) {
+      const container = document.getElementById('pdfLayout');
+      // Очистить контейнер
+      container.innerHTML = '';
+
+      // Заголовок PDF
+      const header = document.createElement('div');
+      header.className = 'pdf-header';
+      header.innerHTML = `
+        <h3>Заказ ${summary.orderNumber ? '#' + summary.orderNumber : ''}</h3>
+      `;
+      container.appendChild(header);
+
+      // Информация о заказе
+      const info = document.createElement('div');
+      info.className = 'pdf-info';
+      info.innerHTML = `
+        <div><strong>Клиент:</strong> ${summary.clientName || '-'}</div>
+        <div><strong>Адрес:</strong> ${summary.clientAddress || '-'}</div>
+        <div><strong>Дата:</strong> ${summary.orderDate || '-'}</div>
+      `;
+      container.appendChild(info);
+
+      // Чертежи
+      const drawingsWrap = document.createElement('div');
+      drawingsWrap.className = 'pdf-drawings-grid';
+      if (drawingsData.length) {
+        drawingsData.forEach(function(item) {
+          const itemDiv = document.createElement('div');
+          itemDiv.className = 'pdf-drawing-item';
+          // Формируем строки для молнии и отступа только если молния есть
+          var zipperLine = '';
+          if (item.hasZipper && item.zipperCm > 0) {
+            zipperLine = 'Молния: ' + item.zipperCm + ' см<br>';
+          }
+          var offsetLine = '';
+          if (item.hasZipper && item.zipperOffset > 0) {
+            offsetLine = 'Отступ молнии: ' + item.zipperOffset + ' см';
+          }
+          // Вставляем HTML для чертежа и метаданных
+          itemDiv.innerHTML = `
+            <h4>Окно ${item.index}</h4>
+            <div class="meta">
+              Размер: ${item.widthCm} × ${item.heightCm} см<br>
+              Кол-во: ${item.qty} шт.<br>
+              Ремни: ${item.straps}<br>
+              ${zipperLine}
+              Окантовка: ${item.edgingWidth} см<br>
+              ${offsetLine}
+            </div>
+            <div>${makeDrawingSVG(item.widthCm, item.heightCm, item.index, item.straps, item.zipperMeters, item.edgingWidth, item.zipperOffset, item.hasZipper)}</div>
+          `;
+          // Если у окна есть молния, делаем размерные стрелки тоньше в вставленном SVG
+          try {
+            var svgEl = itemDiv.querySelector('svg');
+            if (svgEl && item.hasZipper) {
+              var lines = svgEl.querySelectorAll('line');
+              lines.forEach(function(line) {
+                var sw = line.getAttribute('stroke-width');
+                if (sw === '1.4') {
+                  line.setAttribute('stroke-width', '1');
+                }
+              });
+            }
+          } catch (e) {
+            // в случае ошибки просто продолжаем без изменения
+          }
+          drawingsWrap.appendChild(itemDiv);
+        });
+      } else {
+        drawingsWrap.innerHTML = `
+          <div class="pdf-drawing-item">
+            <div style="padding: 20px; text-align: center; color: #555;">
+              Нет данных для отображения чертежей.
+            </div>
+          </div>
+        `;
+      }
+      container.appendChild(drawingsWrap);
+
+      // Сводка
+      const summaryDiv = document.createElement('div');
+      summaryDiv.className = 'pdf-summary';
+      summaryDiv.innerHTML = `
+        <p><b>Всего окон:</b> ${summary.totalQty}</p>
+        <p><b>Общая площадь:</b> ${summary.totalArea.toFixed(2)} м²</p>
+        <p><b>Сумма по полотну:</b> ${money(summary.baseTotal)}</p>
+        <p><b>Сумма допов:</b> ${money(summary.extraTotal)}</p>
+        <p><b>Итого:</b> ${money(summary.grandTotal)}</p>
+        <p><b>Ширина окантовки:</b> ${summary.edgingWidth} см</p>
+      `;
+      container.appendChild(summaryDiv);
+    }
+
+    /* ---------- Экспорт PDF ---------- */
+    document.getElementById('downloadPdfBtn').addEventListener('click', function() {
+      // Показать индикатор процесса
+      var statusEl = document.getElementById('pdfStatus');
+      statusEl.style.display = 'inline';
+      // Определить масштаб: на узких экранах снижаем масштаб для ускорения
+      var scaleFactor = (window.innerWidth || document.documentElement.clientWidth) < 768 ? 1 : 2;
+      // Задержка нужна, чтобы индикатор успел отобразиться
+      setTimeout(function() {
+        var pdfContainer = document.getElementById('pdfLayout');
+        html2canvas(pdfContainer, { scale: scaleFactor }).then(function(canvas) {
+          var imgData = canvas.toDataURL('image/png');
+          var pdf = new jspdf.jsPDF('p', 'mm', 'a4');
+          var imgProps = pdf.getImageProperties(imgData);
+          // Добавляем левый отступ для комфортной печати.
+          var pageWidth = pdf.internal.pageSize.getWidth();
+          var marginLeft = 15; // мм — левый отступ
+          // Ширина изображения уменьшается на величину отступа.
+          var scaledWidth = pageWidth - marginLeft;
+          var scaledHeight = (imgProps.height * scaledWidth) / imgProps.width;
+          pdf.addImage(imgData, 'PNG', marginLeft, 0, scaledWidth, scaledHeight);
+          var orderNumber = document.getElementById('orderNumber').value || 'order';
+          pdf.save('soft_windows_' + orderNumber + '.pdf');
+          // Скрываем индикатор
+          statusEl.style.display = 'none';
+        }).catch(function(err) {
+          console.error(err);
+          statusEl.style.display = 'none';
+          alert('Ошибка при создании PDF. Попробуйте ещё раз.');
+        });
+      }, 50);
+    });
+    /* ---------- Отправка PDF в Telegram через Vercel Serverless ---------- */
+    // ВАЖНО: токен бота и chat_id больше НЕ находятся в открытом HTML.
+    // Кнопка отправляет PDF на /api/send-telegram, а уже serverless-функция
+    // берёт TELEGRAM_BOT_TOKEN и TELEGRAM_CHAT_ID из переменных окружения Vercel.
+
+    function blobToBase64(blob) {
+      return new Promise(function(resolve, reject) {
+        var reader = new FileReader();
+        reader.onload = function() {
+          var result = String(reader.result || '');
+          var base64 = result.indexOf(',') >= 0 ? result.split(',')[1] : result;
+          resolve(base64);
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
+    }
+
+    function buildTelegramCaption(orderNumber) {
+      var clientName = document.getElementById('clientName').value || '-';
+      var clientAddress = document.getElementById('clientAddress').value || '-';
+      var orderDate = document.getElementById('orderDate').value || '-';
+      var totalQty = document.getElementById('totalQty').textContent || '0';
+      var totalArea = document.getElementById('totalArea').textContent || '0 м²';
+      var grandTotal = document.getElementById('grandTotal').textContent || '0 ₽';
+
+      return [
+        'Расчёт мягких окон',
+        'Заказ: ' + (orderNumber || '-'),
+        'Клиент: ' + clientName,
+        'Адрес: ' + clientAddress,
+        'Дата: ' + orderDate,
+        'Окон: ' + totalQty,
+        'Площадь: ' + totalArea,
+        'Итого: ' + grandTotal
+      ].join('\\n');
+    }
+
+    document.getElementById('sendTelegramBtn').addEventListener('click', function() {
+      var statusEl = document.getElementById('pdfStatus');
+      statusEl.style.display = 'inline';
+      statusEl.textContent = 'Создание и отправка PDF…';
+
+      // На мобильных экранах снижаем масштаб, чтобы ускорить рендеринг
+      var scaleFactor = (window.innerWidth || document.documentElement.clientWidth) < 768 ? 1 : 2;
+
+      setTimeout(function() {
+        var pdfContainer = document.getElementById('pdfLayout');
+
+        html2canvas(pdfContainer, { scale: scaleFactor }).then(function(canvas) {
+          var imgData = canvas.toDataURL('image/png');
+          var pdf = new jspdf.jsPDF('p', 'mm', 'a4');
+          var imgProps = pdf.getImageProperties(imgData);
+
+          // Добавляем левый отступ для комфортной печати.
+          var pageWidth = pdf.internal.pageSize.getWidth();
+          var marginLeft = 15; // мм — левый отступ
+          var scaledWidth = pageWidth - marginLeft;
+          var scaledHeight = (imgProps.height * scaledWidth) / imgProps.width;
+
+          pdf.addImage(imgData, 'PNG', marginLeft, 0, scaledWidth, scaledHeight);
+
+          var orderNumber = document.getElementById('orderNumber').value || 'order';
+          var filename = 'soft_windows_' + orderNumber + '.pdf';
+          var blob = pdf.output('blob');
+
+          return blobToBase64(blob).then(function(pdfBase64) {
+            return fetch('/api/send-telegram', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({
+                filename: filename,
+                pdfBase64: pdfBase64,
+                caption: buildTelegramCaption(orderNumber)
+              })
+            });
+          });
+        }).then(function(response) {
+          return response.json().catch(function() {
+            return { ok: false, error: 'Сервер вернул не JSON-ответ' };
+          }).then(function(data) {
+            return { response: response, data: data };
+          });
+        }).then(function(result) {
+          statusEl.style.display = 'none';
+          statusEl.textContent = 'Создание PDF…';
+
+          if (!result.response.ok || !result.data.ok) {
+            alert('Ошибка отправки: ' + (result.data.error || ('HTTP ' + result.response.status)));
+            return;
+          }
+
+          alert('PDF успешно отправлен в Telegram.');
+        }).catch(function(err) {
+          statusEl.style.display = 'none';
+          statusEl.textContent = 'Создание PDF…';
+          alert('Ошибка при отправке PDF в Telegram: ' + (err.message || err));
+        });
+      }, 50);
+    });
+
+    /* ---------- Установка сегодняшней даты по умолчанию ---------- */
+    window.addEventListener('load', function() {
+      // Устанавливаем сегодняшнюю дату
+      var today = new Date().toISOString().split('T')[0];
+      document.getElementById('orderDate').value = today;
+
+      // При изменении настроек цен автоматически пересчитываем заказ
+      var priceInputs = [
+        document.getElementById('pricePerM2'),
+        document.getElementById('edgingPrice'),
+        document.getElementById('strapPrice'),
+        document.getElementById('zipperPrice'),
+        document.getElementById('installPrice'),
+        // Поле минимальной стоимости заказа удалено
+        document.getElementById('edgingWidth')
+      ];
+      priceInputs.forEach(function(input) {
+        if (input) {
+          input.addEventListener('input', calculate);
+          input.addEventListener('change', calculate);
+        }
+      });
+
+      // Добавить два примера строк
+      // Первый пример: окно без молнии (hasZipper = false)
+      // параметры: ширина, высота, количество, окантовка, ремни, наличие молнии,
+      // длина молнии (см), монтаж, отступ молнии (см)
+      addRow(200, 150, 1, true, 4, false, 0, true, 0);
+      // Второй пример: окно с молнией 180 см и 6 ремнями (hasZipper = true)
+      addRow(120, 180, 2, true, 6, true, 180, true, 0);
+    });
+  </script>
+</body>
+</html>
