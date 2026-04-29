@@ -1,126 +1,71 @@
-function escapeHtml(value) {
-  return String(value || "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
-}
-
 export const config = {
   runtime: "edge"
 };
 
 export default async function handler(request) {
+  if (request.method === "GET") {
+    return Response.json({
+      ok: true,
+      api: "send-telegram",
+      mode: "sendDocument",
+      telegramBotTokenConfigured: Boolean(process.env.TELEGRAM_BOT_TOKEN),
+      telegramChatIdConfigured: Boolean(process.env.TELEGRAM_CHAT_ID)
+    });
+  }
+
+  if (request.method !== "POST") {
+    return new Response("Method not allowed", { status: 405 });
+  }
+
+  const botToken = process.env.TELEGRAM_BOT_TOKEN;
+  const chatId = process.env.TELEGRAM_CHAT_ID;
+
+  if (!botToken || !chatId) {
+    return Response.json({
+      ok: false,
+      error: "TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID is not configured"
+    }, { status: 500 });
+  }
+
   try {
-    const token = process.env.TELEGRAM_BOT_TOKEN;
-    const chatId = process.env.TELEGRAM_CHAT_ID;
-
-    if (request.method === "GET") {
-      return Response.json({
-        ok: true,
-        api: "send-telegram",
-        telegramBotTokenConfigured: Boolean(token),
-        telegramChatIdConfigured: Boolean(chatId),
-        mode: "sendDocument",
-        version: "soft-windows-v3-formdata-edge"
-      });
-    }
-
-    if (request.method !== "POST") {
-      return Response.json(
-        { ok: false, error: "Method not allowed" },
-        { status: 405 }
-      );
-    }
-
-    if (!token || !chatId) {
-      return Response.json(
-        {
-          ok: false,
-          error: "Не настроены TELEGRAM_BOT_TOKEN или TELEGRAM_CHAT_ID в Vercel"
-        },
-        { status: 500 }
-      );
-    }
-
-    const incomingForm = await request.formData();
-    const documentFile = incomingForm.get("document");
-    const filenameRaw = incomingForm.get("filename") || "soft_windows_order.pdf";
-    const captionRaw = incomingForm.get("caption") || "Расчёт мягких окон";
+    const incoming = await request.formData();
+    const documentFile = incoming.get("document");
+    const caption = incoming.get("caption") || "Расчёт мягких окон";
 
     if (!documentFile) {
-      return Response.json(
-        { ok: false, error: "PDF-файл не передан в поле document" },
-        { status: 400 }
-      );
+      return Response.json({
+        ok: false,
+        error: "No document file received"
+      }, { status: 400 });
     }
-
-    const size = documentFile.size || 0;
-
-    if (!size) {
-      return Response.json(
-        { ok: false, error: "PDF пустой или повреждён" },
-        { status: 400 }
-      );
-    }
-
-    if (size > 5 * 1024 * 1024) {
-      return Response.json(
-        {
-          ok: false,
-          error: "PDF слишком большой для отправки: " + Math.round(size / 1024 / 1024 * 100) / 100 + " МБ"
-        },
-        { status: 413 }
-      );
-    }
-
-    const filename = String(filenameRaw).replace(/[^\wа-яА-ЯёЁ.-]+/g, "_");
-    const caption = escapeHtml(String(captionRaw).slice(0, 1000));
 
     const telegramForm = new FormData();
     telegramForm.append("chat_id", chatId);
     telegramForm.append("caption", caption);
-    telegramForm.append("parse_mode", "HTML");
-    telegramForm.append("document", documentFile, filename);
+    telegramForm.append("document", documentFile);
 
-    const telegramResponse = await fetch(
-      "https://api.telegram.org/bot" + token + "/sendDocument",
-      {
-        method: "POST",
-        body: telegramForm
-      }
-    );
+    const telegramResponse = await fetch(`https://api.telegram.org/bot${botToken}/sendDocument`, {
+      method: "POST",
+      body: telegramForm
+    });
 
-    const telegramText = await telegramResponse.text();
-    let telegramData = {};
-    try {
-      telegramData = JSON.parse(telegramText);
-    } catch (error) {
-      telegramData = { description: telegramText.slice(0, 300) };
-    }
+    const text = await telegramResponse.text();
 
     if (!telegramResponse.ok) {
-      return Response.json(
-        {
-          ok: false,
-          error: telegramData.description || "Telegram error",
-          telegramStatus: telegramResponse.status
-        },
-        { status: 502 }
-      );
+      return new Response(text, {
+        status: telegramResponse.status,
+        headers: { "content-type": "application/json; charset=utf-8" }
+      });
     }
 
-    return Response.json({
-      ok: true,
-      message: "PDF отправлен в Telegram",
-      sizeBytes: size
+    return new Response(text, {
+      status: 200,
+      headers: { "content-type": "application/json; charset=utf-8" }
     });
   } catch (error) {
-    return Response.json(
-      {
-        ok: false,
-        error: error.message || "Server error"
-      },
-      { status: 500 }
-    );
+    return Response.json({
+      ok: false,
+      error: error.message || "Unknown server error"
+    }, { status: 500 });
   }
 }
